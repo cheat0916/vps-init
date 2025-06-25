@@ -22,6 +22,13 @@
 bash <(wget -qO- https://raw.githubusercontent.com/cheat0916/vps-init/master/vps-cheat.sh)
 ```
 
+或使用 curl：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/cheat0916/vps-init/master/vps-cheat.sh)
+```
+
+
 ## 🧰 功能说明 / Features
 
 - ✅ 检测当前用户名并修复主机名 hosts  
