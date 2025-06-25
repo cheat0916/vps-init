@@ -33,7 +33,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cheat0916/vps-init/master/vp
 
 - ✅ 检测当前用户名并修复主机名 hosts  
 - ✅ 检查并修复系统软件源（支持 Debian / Ubuntu / CentOS / AlmaLinux）  
-- ✅ 软件包更新提示并选择是否执行  
+- ✅ 软件包更新提示  
 - ✅ 清理系统缓存和垃圾  
 - ✅ 一键安装 WARP（调用 fscarmen 脚本）  
 - ✅ 一键安装 Docker（官方推荐脚本）  
