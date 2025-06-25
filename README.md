@@ -51,7 +51,7 @@ bash <(wget -qO- https://raw.githubusercontent.com/cheat0916/vps-init/master/vps
 |----------------|-----------------------------|
 | `vps-cheat.sh` | 主脚本文件（可一键运行）    |
 | `README.md`    | 项目说明文档                |
-| `banner.png`   | 项目顶部封面图（建议上传）  |
+| `banner.png`   | 项目顶部封面图              |
 
 ---
 
