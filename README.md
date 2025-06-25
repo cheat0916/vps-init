@@ -1,13 +1,22 @@
-# 💻 VPS 初始化脚本工具 - Cheat VPS Init Toolkit
+<p align="center">
+  <img src="https://raw.githubusercontent.com/cheat0916/vps-init/master/banner.png" alt="Cheat VPS Init Banner" width="100%">
+</p>
 
-一个多语言（中文/English）支持、可交互、模块化的 VPS 一键初始化脚本，适用于各种 Linux 系统。
-自动执行常见配置任务，支持一键执行、远程部署、Docker 安装、WARP 接入等功能。
+<h1 align="center">Cheat VPS Init Toolkit</h1>
+<p align="center">🚀 VPS 初始化脚本工具 - 一键配置、自动安装、中文/English 多语言支持</p>
+
+<p align="center">
+  <img src="https://img.shields.io/github/repo-size/cheat0916/vps-init" />
+  <img src="https://img.shields.io/github/last-commit/cheat0916/vps-init" />
+  <img src="https://img.shields.io/github/license/cheat0916/vps-init" />
+  <img src="https://img.shields.io/github/stars/cheat0916/vps-init?style=social" />
+</p>
 
 ---
 
-## 🚀 快速开始
+## 📥 快速开始 / Quick Start
 
-在你的 VPS 上运行以下命令启动脚本：
+在你的 VPS 上运行以下命令：
 
 ```bash
 bash <(wget -qO- https://raw.githubusercontent.com/cheat0916/vps-init/master/vps-cheat.sh)
