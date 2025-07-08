@@ -5,17 +5,30 @@ GREEN="\033[32m"
 RED="\033[31m"
 YELLOW="\033[33m"
 BLUE="\033[36m"
+PURPLE="\033[35m"
 RESET="\033[0m"
 
 # ========= 兼容性检测 =========
 SUPPORT_UTF8=$(locale charmap 2>/dev/null | grep -iq "UTF-8" && echo 1 || echo 0)
 
-# ========= LOGO =========
-if [ "$SUPPORT_UTF8" -eq 1 ]; then
-  CHEAT_LOGO="${GREEN}=== 🧠 CHEAT VPS TOOLKIT ===${RESET}"
-else
-  CHEAT_LOGO="${GREEN}=== CHEAT VPS TOOLKIT ===${RESET}"
-fi
+# ========= 美化 LOGO =========
+function print_logo() {
+  if [ "$SUPPORT_UTF8" -eq 1 ]; then
+    cat << "EOF"
+${GREEN}
+  ____ _               _   
+ / ___| |__   ___  ___| |_ 
+| |   | '_ \ / _ \/ __| __|
+| |___| | | |  __/ (__| |_ 
+ \____|_| |_|\___|\___|\__|
+  
+   CHEAT VPS TOOLKIT
+${RESET}
+EOF
+  else
+    echo -e "${GREEN}=== CHEAT VPS TOOLKIT ===${RESET}"
+  fi
+}
 
 # ========= 多语言初始化 =========
 LANGUAGE="CN"
@@ -49,6 +62,15 @@ if [[ $EUID -ne 0 ]]; then
   msg root_warn
   exit 1
 fi
+
+# ========= 检测网络 =========
+function check_network() {
+  if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
+    echo -e "${GREEN}网络状态：已连接${RESET}"
+  else
+    echo -e "${RED}网络状态：未连接${RESET}"
+  fi
+}
 
 # ========= 基础功能 =========
 fix_hostname() {
@@ -86,6 +108,7 @@ clean_garbage() {
 
 install_warp() {
   echo -e "${BLUE}安装 WARP...${RESET}"
+  echo -e "${YELLOW}脚本来源：https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh${RESET}"
   bash <(wget -qO- https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh)
 }
 
@@ -97,8 +120,11 @@ install_docker() {
 }
 
 run_benchmark() {
-  echo -e "${BLUE}运行性能测试...${RESET}"
-  curl -fsL https://ilemonra.in/LemonBenchIntl | bash -s fast
+  echo -e "${BLUE}开始性能测试...${RESET}"
+  echo -e "${YELLOW}性能测试脚本来源：https://ilemonra.in/LemonBenchIntl${RESET}"
+  curl -fsL https://ilemonra.in/LemonBenchIntl | bash -s fast || {
+    echo -e "${RED}性能测试脚本运行失败，可能网络问题或脚本源不可用。${RESET}"
+  }
 }
 
 exit_script() {
@@ -111,26 +137,36 @@ swap_manager() {
   while true; do
     clear
     echo -e "${GREEN}=== Swap 管理 ===${RESET}"
-    echo "当前 Swap 状态："
-    swapon --show || echo "无 Swap"
+    echo -e "当前 Swap 状态："
+    if swapon --show; then
+      echo
+    else
+      echo -e "${YELLOW}无启用 Swap。${RESET}"
+    fi
     echo
-    echo "1. 创建 Swap 文件 (1GB)"
+    echo "1. 创建/修改 Swap 文件"
     echo "2. 删除 Swap 文件"
     echo "3. 返回主菜单"
     read -p "请选择 [1-3]: " sm_opt
     case $sm_opt in
       1)
-        if swapon --show | grep -q swapfile; then
-          echo -e "${YELLOW}Swap 文件已存在，先删除后再创建。${RESET}"
-          swapoff /swapfile
-          rm -f /swapfile
+        read -p "请输入 Swap 大小（单位MB，如1024表示1GB）: " swap_size
+        if [[ ! "$swap_size" =~ ^[0-9]+$ ]]; then
+          echo -e "${RED}请输入有效的数字。${RESET}"
+        else
+          if swapon --show | grep -q swapfile; then
+            echo -e "${YELLOW}已有 swapfile，先删除旧的...${RESET}"
+            swapoff /swapfile
+            rm -f /swapfile
+            sed -i '/swapfile/d' /etc/fstab
+          fi
+          fallocate -l "${swap_size}M" /swapfile
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          echo -e "${GREEN}Swap 文件创建并启用完成，大小为 ${swap_size}MB。${RESET}"
         fi
-        fallocate -l 1G /swapfile
-        chmod 600 /swapfile
-        mkswap /swapfile
-        swapon /swapfile
-        echo '/swapfile none swap sw 0 0' >> /etc/fstab
-        echo -e "${GREEN}Swap 文件创建并启用完成。${RESET}"
         ;;
       2)
         if swapon --show | grep -q swapfile; then
@@ -214,13 +250,13 @@ security_config() {
   done
 }
 
-# ========= 系统时间与时区配置模块 =========
+# ========= 时间与时区配置模块 =========
 time_timezone() {
   while true; do
     clear
     echo -e "${GREEN}=== 系统时间与时区配置 ===${RESET}"
-    echo "当前时间：$(date)"
-    echo "当前时区：$(timedatectl show --property=Timezone --value)"
+    echo "当前时间：$(date '+%F %T')"
+    echo "当前时区：$(timedatectl show --property=Timezone --value 2>/dev/null || echo '未知')"
     echo
     echo "1. 设置时区"
     echo "2. 同步网络时间 (NTP)"
@@ -230,7 +266,7 @@ time_timezone() {
       1)
         timedatectl list-timezones
         read -p "请输入时区名称（如 Asia/Shanghai）: " tz
-        if timedatectl set-timezone "$tz"; then
+        if timedatectl set-timezone "$tz" 2>/dev/null; then
           echo -e "${GREEN}时区已设置为 $tz${RESET}"
         else
           echo -e "${RED}设置时区失败，请检查输入是否正确。${RESET}"
@@ -261,7 +297,7 @@ user_manager() {
     clear
     echo -e "${GREEN}=== 用户管理 ===${RESET}"
     echo "当前用户列表："
-    cut -d: -f1 /etc/passwd
+    cut -d: -f1 /etc/passwd | column
     echo
     echo "1. 添加用户"
     echo "2. 删除用户"
@@ -274,15 +310,16 @@ user_manager() {
         if id "$new_user" &>/dev/null; then
           echo -e "${YELLOW}用户已存在。${RESET}"
         else
-          adduser "$new_user"
-          echo -e "${GREEN}用户 $new_user 添加成功。${RESET}"
+          useradd -m "$new_user"
+          passwd "$new_user"
+          echo -e "${GREEN}用户 $new_user 已添加。${RESET}"
         fi
         ;;
       2)
         read -p "请输入要删除的用户名: " del_user
         if id "$del_user" &>/dev/null; then
-          deluser "$del_user"
-          echo -e "${GREEN}用户 $del_user 删除成功。${RESET}"
+          userdel -r "$del_user"
+          echo -e "${GREEN}用户 $del_user 已删除。${RESET}"
         else
           echo -e "${YELLOW}用户不存在。${RESET}"
         fi
@@ -310,13 +347,19 @@ user_manager() {
 # ========= 主菜单 =========
 main_menu() {
   clear
-  echo -e "$CHEAT_LOGO"
+  print_logo
   msg welcome
   msg warning
   echo
-  echo "当前系统信息："
-  uname -a
+
+  echo -e "${PURPLE}系统信息:${RESET}"
+  echo -e "内核版本: $(uname -r)"
+  echo -e "系统版本: $(grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"')"
+  echo -e "CPU 架构: $(uname -m)"
+  echo -e "当前用户: $(whoami)"
+  check_network
   echo
+
   echo "1. 修复主机名和软件源"
   echo "2. 清理系统垃圾"
   echo "3. 安装 WARP"
