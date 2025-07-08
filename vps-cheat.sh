@@ -1,496 +1,456 @@
 #!/bin/bash
 
-# ========= 色彩定义 =========
-GREEN="\033[32m"
-RED="\033[31m"
-YELLOW="\033[33m"
-BLUE="\033[36m"
-PURPLE="\033[35m"
-RESET="\033[0m"
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+NC='\033[0m' # 无色
 
-# ========= 兼容性检测 =========
-SUPPORT_UTF8=$(locale charmap 2>/dev/null | grep -iq "UTF-8" && echo 1 || echo 0)
-
-# ========= 美化 LOGO =========
-function print_logo() {
-  if [ "$SUPPORT_UTF8" -eq 1 ]; then
-    cat << "EOF"
-${GREEN}
-  ____ _               _   
- / ___| |__   ___  ___| |_ 
-| |   | '_ \ / _ \/ __| __|
-| |___| | | |  __/ (__| |_ 
- \____|_| |_|\___|\___|\__|
-  
-   CHEAT VPS TOOLKIT
-${RESET}
-EOF
-  else
-    echo -e "${GREEN}=== CHEAT VPS TOOLKIT ===${RESET}"
-  fi
+clear_screen() {
+  clear
 }
 
-# ========= 多语言 =========
-LANGUAGE="CN"
-
-# 消息输出函数
-function msg() {
-  case "$1" in
-    welcome)
-      [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Welcome to the CHEAT VPS Initialization Toolkit!${RESET}" || echo -e "${GREEN}欢迎使用 CHEAT VPS 初始化工具！${RESET}"
-      ;;
-    warning)
-      [[ $LANGUAGE == "EN" ]] && echo -e "${RED}⚠️  Legal VPS setup only.${RESET}" || echo -e "${RED}⚠️  本脚本仅限合法用途，请勿用于非法行为。${RESET}"
-      ;;
-    choose_lang)
-      echo -e "1. 中文\n2. English"
-      [[ $LANGUAGE == "EN" ]] && read -p "Choose language [1-2]: " choice || read -p "请选择语言 [1-2]: " choice
-      [[ "$choice" == "2" ]] && LANGUAGE="EN"
-      ;;
-    root_warn)
-      [[ $LANGUAGE == "EN" ]] && echo -e "${YELLOW}⚠️  Please run as root or with sudo.${RESET}" || echo -e "${YELLOW}⚠️  请使用 root 用户或 sudo 执行。${RESET}"
-      ;;
-    return_menu)
-      [[ $LANGUAGE == "EN" ]] && read -p "Press Enter to return..." || read -p "按回车键返回..."
-      ;;
-    invalid)
-      [[ $LANGUAGE == "EN" ]] && echo -e "${RED}Invalid input!${RESET}" || echo -e "${RED}无效输入！${RESET}"
-      ;;
-  esac
+pause() {
+  read -rp "按回车键继续..."
 }
 
-# ========= 权限检测 =========
-if [[ $EUID -ne 0 ]]; then
-  msg root_warn
-  exit 1
-fi
-
-# ========= 检测网络 =========
-function check_network() {
-  if ping -c 1 -W 2 8.8.8.8 &>/dev/null; then
-    [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Network Status: Connected${RESET}" || echo -e "${GREEN}网络状态：已连接${RESET}"
-  else
-    [[ $LANGUAGE == "EN" ]] && echo -e "${RED}Network Status: Disconnected${RESET}" || echo -e "${RED}网络状态：未连接${RESET}"
-  fi
+print_line() {
+  printf '%*s\n' "${COLUMNS:-80}" '' | tr ' ' -
 }
 
-# ========= 基础功能 =========
-fix_hostname() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${BLUE}Checking hostname...${RESET}"
+# --- 主界面 ---
+show_system_info() {
+  clear_screen
+  print_line
+  echo -e "${CYAN}        系统信息面板        ${NC}"
+  print_line
+
+  # 系统信息
+  echo -e "${GREEN}主机名:${NC} $(hostname)"
+  echo -e "${GREEN}系统版本:${NC} $(lsb_release -d 2>/dev/null || cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"')"
+  echo -e "${GREEN}内核版本:${NC} $(uname -r)"
+  echo -e "${GREEN}CPU信息:${NC} $(lscpu | grep 'Model name' | awk -F: '{print $2}' | sed 's/^ *//')"
+  mem_total=$(free -h | awk '/Mem:/ {print $2}')
+  echo -e "${GREEN}内存总量:${NC} $mem_total"
+
+  # 当前用户是否root
+  if [ "$(id -u)" -eq 0 ]; then
+    echo -e "${GREEN}当前用户:${NC} root (超级用户)"
   else
-    echo -e "${BLUE}检测主机名...${RESET}"
+    echo -e "${YELLOW}当前用户:${NC} $(whoami)"
   fi
 
-  local hn=$(hostname)
-  if grep -q "$hn" /etc/hosts; then
-    [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Hostname exists in /etc/hosts${RESET}" || echo -e "${GREEN}主机名已存在 /etc/hosts${RESET}"
+  # 网络连通性检测
+  echo -e -n "${GREEN}网络状态检测:${NC} "
+  if ping -c 1 -W 1 8.8.8.8 &>/dev/null; then
+    echo -e "${GREEN}连通正常${NC}"
   else
-    echo "127.0.0.1 $hn" >> /etc/hosts
-    [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Added hostname to /etc/hosts${RESET}" || echo -e "${GREEN}添加主机名到 /etc/hosts${RESET}"
+    echo -e "${RED}无网络连接${NC}"
   fi
+
+  print_line
+  echo "1) 时区设置"
+  echo "2) Swap管理"
+  echo "3) 安全配置"
+  echo "4) 用户管理"
+  echo "0) 退出脚本"
+  print_line
 }
 
-fix_sources() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${BLUE}Fixing package sources...${RESET}"
-  else
-    echo -e "${BLUE}修复软件源...${RESET}"
-  fi
-
-  if [ -f /etc/debian_version ]; then
-    apt update && apt upgrade -y
-  elif grep -qi centos /etc/os-release; then
-    yum makecache && yum update -y
-  else
-    [[ $LANGUAGE == "EN" ]] && echo -e "${RED}Unsupported system type${RESET}" || echo -e "${RED}暂不支持的系统类型${RESET}"
-  fi
-}
-
-clean_garbage() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${BLUE}Cleaning cache...${RESET}"
-  else
-    echo -e "${BLUE}清理缓存...${RESET}"
-  fi
-
-  if command -v apt >/dev/null 2>&1; then
-    apt autoremove -y && apt clean && echo -e "${GREEN}Done${RESET}"
-  elif command -v yum >/dev/null 2>&1; then
-    yum autoremove -y && yum clean all && echo -e "${GREEN}Done${RESET}"
-  else
-    [[ $LANGUAGE == "EN" ]] && echo -e "${RED}Unknown package manager, cannot clean.${RESET}" || echo -e "${RED}未知包管理器，无法清理缓存${RESET}"
-  fi
-}
-
-install_warp() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${BLUE}Installing WARP...${RESET}"
-    echo -e "${YELLOW}Script source: https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh${RESET}"
-  else
-    echo -e "${BLUE}安装 WARP...${RESET}"
-    echo -e "${YELLOW}脚本来源：https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh${RESET}"
-  fi
-  bash <(wget -qO- https://gitlab.com/fscarmen/warp/-/raw/main/menu.sh)
-}
-
-install_docker() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${BLUE}Installing Docker...${RESET}"
-  else
-    echo -e "${BLUE}安装 Docker...${RESET}"
-  fi
-  curl -fsSL https://get.docker.com | bash
-  systemctl enable docker --now
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${GREEN}Docker installed.${RESET}"
-  else
-    echo -e "${GREEN}Docker 已安装${RESET}"
-  fi
-}
-
-run_benchmark() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${BLUE}Starting performance test...${RESET}"
-    echo -e "${YELLOW}Performance test script source: https://run.NodeQuality.com${RESET}"
-  else
-    echo -e "${BLUE}开始性能测试...${RESET}"
-    echo -e "${YELLOW}性能测试脚本来源：https://run.NodeQuality.com${RESET}"
-  fi
-  bash <(curl -sL https://run.NodeQuality.com) || {
-    if [[ $LANGUAGE == "EN" ]]; then
-      echo -e "${RED}Performance test script failed to run.${RESET}"
-    else
-      echo -e "${RED}性能测试脚本运行失败。${RESET}"
-    fi
-  }
-}
-
-exit_script() {
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${GREEN}Thanks for using, bye!${RESET}"
-  else
-    echo -e "${GREEN}感谢使用，再见！${RESET}"
-  fi
-  exit 0
-}
-
-# ========= Swap 管理 =========
-swap_manager() {
+# --- 时区设置 ---
+timezone_menu() {
   while true; do
-    clear
-    if [[ $LANGUAGE == "EN" ]]; then
-      echo -e "${GREEN}=== Swap Management ===${RESET}"
-      echo "Current Swap status:"
-    else
-      echo -e "${GREEN}=== Swap 管理 ===${RESET}"
-      echo "当前 Swap 状态："
+    clear_screen
+    print_line
+    echo -e "${CYAN}        时区设置        ${NC}"
+    print_line
+    current_tz=$(timedatectl show --property=Timezone --value)
+    current_time=$(date +"%Y-%m-%d %H:%M:%S")
+    echo -e "${GREEN}当前时区:${NC} $current_tz"
+    echo -e "${GREEN}当前时间:${NC} $current_time"
+    print_line
+    echo "请选择新的时区:"
+    echo "1) Asia/Shanghai (北京时间)"
+    echo "2) Asia/Tokyo (东京时间)"
+    echo "3) Europe/London (伦敦时间)"
+    echo "4) Europe/Berlin (柏林时间)"
+    echo "5) America/New_York (纽约时间)"
+    echo "6) America/Los_Angeles (洛杉矶时间)"
+    echo "0) 返回上级菜单"
+    print_line
+    read -rp "请输入数字选择: " tz_choice
+
+    case $tz_choice in
+      1) new_tz="Asia/Shanghai" ;;
+      2) new_tz="Asia/Tokyo" ;;
+      3) new_tz="Europe/London" ;;
+      4) new_tz="Europe/Berlin" ;;
+      5) new_tz="America/New_York" ;;
+      6) new_tz="America/Los_Angeles" ;;
+      0) return ;;
+      *) echo -e "${RED}无效输入，请重新选择${NC}"; pause; continue ;;
+    esac
+
+    # 设置时区，需root权限
+    if [ "$(id -u)" -ne 0 ]; then
+      echo -e "${RED}需要root权限来更改时区${NC}"
+      pause
+      continue
     fi
 
-    if swapon --show; then
-      echo
-    else
-      [[ $LANGUAGE == "EN" ]] && echo -e "${YELLOW}No active Swap.${RESET}" || echo -e "${YELLOW}无启用 Swap。${RESET}"
-    fi
+    timedatectl set-timezone "$new_tz" && echo -e "${GREEN}时区设置成功为: $new_tz${NC}" || echo -e "${RED}设置失败${NC}"
+    pause
+  done
+}
 
-    echo
-    if [[ $LANGUAGE == "EN" ]]; then
-      echo "1. Create/Modify Swap File"
-      echo "2. Delete Swap File"
-      echo "3. Return to Main Menu"
-      read -p "Choose [1-3]: " sm_opt
-    else
-      echo "1. 创建/修改 Swap 文件"
-      echo "2. 删除 Swap 文件"
-      echo "3. 返回主菜单"
-      read -p "请选择 [1-3]: " sm_opt
-    fi
+# --- swap管理 ---
+swap_menu() {
+  while true; do
+    clear_screen
+    print_line
+    echo -e "${CYAN}        Swap管理        ${NC}"
+    print_line
 
-    case $sm_opt in
+    # 当前swap信息
+    swap_total=$(free -h | awk '/Swap:/ {print $2}')
+    swap_used=$(free -h | awk '/Swap:/ {print $3}')
+    swap_free=$(free -h | awk '/Swap:/ {print $4}')
+    mem_total_bytes=$(free -b | awk '/Mem:/ {print $2}')
+    mem_total_gb=$(echo "$mem_total_bytes" | awk '{printf "%.2f", $1/1024/1024/1024}')
+    disk_total_bytes=$(df / --output=size -B1 | tail -1)
+    disk_total_gb=$(echo "$disk_total_bytes" | awk '{printf "%.2f", $1/1024/1024/1024}')
+    
+    echo -e "${GREEN}Swap总量:${NC} $swap_total"
+    echo -e "${GREEN}Swap已用:${NC} $swap_used"
+    echo -e "${GREEN}Swap空闲:${NC} $swap_free"
+    echo -e "${GREEN}物理内存:${NC} ${mem_total_gb} GB"
+    echo -e "${GREEN}根分区磁盘总量:${NC} ${disk_total_gb} GB"
+
+    # 建议swap大小 (简单建议：内存1~2倍，最大4GB)
+    recommended_swap_gb=$(awk -v mem=$mem_total_gb 'BEGIN{if(mem<2)print 2; else if(mem<=4)print mem*1.5; else print 4}')
+    echo -e "${YELLOW}建议的Swap大小约为: ${recommended_swap_gb} GB${NC}"
+
+    print_line
+    echo "1) 创建交换分区 (swapfile)"
+    echo "2) 删除交换分区 (关闭swap)"
+    echo "3) 查看当前swap详细信息"
+    echo "0) 返回上级菜单"
+    print_line
+    read -rp "请选择操作: " swap_choice
+
+    case $swap_choice in
       1)
-        if [[ $LANGUAGE == "EN" ]]; then
-          read -p "Enter swap size in GB (e.g. 2): " size_gb
-        else
-          read -p "请输入Swap大小 (GB): " size_gb
-        fi
-
-        if [[ ! $size_gb =~ ^[0-9]+$ ]]; then
-          msg invalid
+        if [ "$(id -u)" -ne 0 ]; then
+          echo -e "${RED}需要root权限操作${NC}"
+          pause
           continue
         fi
-
-        swapoff -a
-        rm -f /swapfile
-        fallocate -l "${size_gb}G" /swapfile
-        chmod 600 /swapfile
-        mkswap /swapfile
-        swapon /swapfile
-
-        if ! grep -q "/swapfile" /etc/fstab; then
-          echo "/swapfile none swap sw 0 0" >> /etc/fstab
+        read -rp "请输入swap文件大小（单位GB，推荐${recommended_swap_gb}）: " size_gb
+        if ! [[ "$size_gb" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+          echo -e "${RED}输入无效${NC}"
+          pause
+          continue
         fi
-
-        [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Swap file set to ${size_gb}GB and activated.${RESET}" || echo -e "${GREEN}Swap 文件已创建并激活，大小为 ${size_gb}GB。${RESET}"
-        sleep 2
+        swapfile_create "$size_gb"
         ;;
       2)
-        swapoff -a
-        rm -f /swapfile
-        sed -i '/swapfile/d' /etc/fstab
-        [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Swap file deleted.${RESET}" || echo -e "${GREEN}Swap 文件已删除。${RESET}"
-        sleep 2
+        if [ "$(id -u)" -ne 0 ]; then
+          echo -e "${RED}需要root权限操作${NC}"
+          pause
+          continue
+        fi
+        swapfile_remove
         ;;
       3)
-        break
+        swapon -s || echo "没有开启的swap"
+        pause
         ;;
-      *)
-        msg invalid
-        ;;
+      0) return ;;
+      *) echo -e "${RED}无效选择${NC}"; pause ;;
     esac
   done
 }
 
-# ========= 时间与时区设置 =========
-time_timezone() {
-  while true; do
-    clear
-    if [[ $LANGUAGE == "EN" ]]; then
-      echo -e "${GREEN}=== Time & Timezone Settings ===${RESET}"
-      echo "1. Show current time & timezone"
-      echo "2. Set timezone"
-      echo "3. Sync time with NTP"
-      echo "4. Return to main menu"
-      read -p "Choose [1-4]: " tt_opt
-    else
-      echo -e "${GREEN}=== 时间与时区设置 ===${RESET}"
-      echo "1. 显示当前时间与时区"
-      echo "2. 设置时区"
-      echo "3. 同步时间 (NTP)"
-      echo "4. 返回主菜单"
-      read -p "请选择 [1-4]: " tt_opt
-    fi
+swapfile_create() {
+  size_gb=$1
+  size_bytes=$(awk -v gb=$size_gb 'BEGIN{printf "%d", gb*1024*1024*1024}')
+  echo "创建 ${size_gb}GB 的swap文件..."
+  swapfile=/swapfile
 
-    case $tt_opt in
-      1)
-        date
-        timedatectl
-        msg return_menu
-        ;;
-      2)
-        if [[ $LANGUAGE == "EN" ]]; then
-          read -p "Enter timezone (e.g. Asia/Shanghai): " tz
-        else
-          read -p "请输入时区 (例如 Asia/Shanghai): " tz
-        fi
-        timedatectl set-timezone "$tz" && date && echo -e "${GREEN}Timezone set to $tz${RESET}" || echo -e "${RED}Failed to set timezone.${RESET}"
-        msg return_menu
-        ;;
-      3)
-        systemctl restart systemd-timesyncd || systemctl restart ntp || true
-        if command -v ntpdate &>/dev/null; then
-          ntpdate pool.ntp.org
-        fi
-        [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Time synchronized.${RESET}" || echo -e "${GREEN}时间同步完成。${RESET}"
-        msg return_menu
-        ;;
-      4)
-        break
-        ;;
-      *)
-        msg invalid
-        ;;
-    esac
-  done
-}
-
-# ========= 用户管理 =========
-user_manager() {
-  while true; do
-    clear
-    if [[ $LANGUAGE == "EN" ]]; then
-      echo -e "${GREEN}=== User Management ===${RESET}"
-      echo "1. Add user"
-      echo "2. Delete user"
-      echo "3. List users"
-      echo "4. Return to main menu"
-      read -p "Choose [1-4]: " u_opt
-    else
-      echo -e "${GREEN}=== 用户管理 ===${RESET}"
-      echo "1. 添加用户"
-      echo "2. 删除用户"
-      echo "3. 查看用户列表"
-      echo "4. 返回主菜单"
-      read -p "请选择 [1-4]: " u_opt
-    fi
-
-    case $u_opt in
-      1)
-        if [[ $LANGUAGE == "EN" ]]; then
-          read -p "Enter username to add: " uname
-        else
-          read -p "请输入要添加的用户名: " uname
-        fi
-        adduser "$uname"
-        [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}User added: $uname${RESET}" || echo -e "${GREEN}用户已添加: $uname${RESET}"
-        msg return_menu
-        ;;
-      2)
-        if [[ $LANGUAGE == "EN" ]]; then
-          read -p "Enter username to delete: " uname
-        else
-          read -p "请输入要删除的用户名: " uname
-        fi
-        deluser "$uname"
-        [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}User deleted: $uname${RESET}" || echo -e "${GREEN}用户已删除: $uname${RESET}"
-        msg return_menu
-        ;;
-      3)
-        cut -d: -f1 /etc/passwd
-        msg return_menu
-        ;;
-      4)
-        break
-        ;;
-      *)
-        msg invalid
-        ;;
-    esac
-  done
-}
-
-# ========= 安全配置 =========
-security_settings() {
-  while true; do
-    clear
-    if [[ $LANGUAGE == "EN" ]]; then
-      echo -e "${GREEN}=== Security Settings ===${RESET}"
-      echo "1) Disable root SSH login"
-      echo "2) Install and enable fail2ban"
-      echo "3) Setup basic firewall (ufw)"
-      echo "4) Return to main menu"
-      read -p "Choose [1-4]: " sec_opt
-    else
-      echo -e "${GREEN}=== 安全配置 ===${RESET}"
-      echo "1) 禁止 root 用户 SSH 登录"
-      echo "2) 安装并启用 fail2ban"
-      echo "3) 设置基础防火墙 (ufw)"
-      echo "4) 返回主菜单"
-      read -p "请选择 [1-4]: " sec_opt
-    fi
-
-    case $sec_opt in
-      1)
-        sed -i '/^PermitRootLogin/s/yes/no/' /etc/ssh/sshd_config
-        systemctl restart sshd
-        [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}Root SSH login disabled.${RESET}" || echo -e "${GREEN}已禁止 root 用户 SSH 登录。${RESET}"
-        sleep 2
-        ;;
-      2)
-        if command -v apt >/dev/null 2>&1; then
-          apt update && apt install -y fail2ban
-          systemctl enable --now fail2ban
-          [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}fail2ban installed and enabled.${RESET}" || echo -e "${GREEN}fail2ban 已安装并启用。${RESET}"
-        elif command -v yum >/dev/null 2>&1; then
-          yum install -y epel-release
-          yum install -y fail2ban
-          systemctl enable --now fail2ban
-          [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}fail2ban installed and enabled.${RESET}" || echo -e "${GREEN}fail2ban 已安装并启用。${RESET}"
-        else
-          [[ $LANGUAGE == "EN" ]] && echo -e "${RED}Unsupported system for fail2ban installation.${RESET}" || echo -e "${RED}不支持的系统，无法安装 fail2ban。${RESET}"
-        fi
-        sleep 2
-        ;;
-      3)
-        if command -v apt >/dev/null 2>&1; then
-          apt update && apt install -y ufw
-          ufw default deny incoming
-          ufw default allow outgoing
-          ufw allow ssh
-          ufw --force enable
-          [[ $LANGUAGE == "EN" ]] && echo -e "${GREEN}ufw installed and basic rules applied.${RESET}" || echo -e "${GREEN}ufw 已安装并配置基本规则。${RESET}"
-        else
-          [[ $LANGUAGE == "EN" ]] && echo -e "${RED}ufw is not supported or not available.${RESET}" || echo -e "${RED}不支持 ufw 或未安装。${RESET}"
-        fi
-        sleep 2
-        ;;
-      4)
-        break
-        ;;
-      *)
-        msg invalid
-        ;;
-    esac
-  done
-}
-
-# ========= 主菜单 =========
-while true; do
-  clear
-  print_logo
-  check_network
-  echo
-  if [[ $LANGUAGE == "EN" ]]; then
-    echo -e "${PURPLE}1) Fix hostname and update sources"
-    echo "2) Clean cache"
-    echo "3) Install WARP"
-    echo "4) Install Docker"
-    echo "5) Run benchmark"
-    echo "6) Swap management"
-    echo "7) Security settings"
-    echo "8) Time & timezone"
-    echo "9) User manager"
-    echo "0) Exit"
-    read -p "Choose an option [0-9]: " opt
-  else
-    echo -e "${PURPLE}1) 修复主机名和更新软件源"
-    echo "2) 清理缓存"
-    echo "3) 安装 WARP"
-    echo "4) 安装 Docker"
-    echo "5) 性能测试"
-    echo "6) Swap 管理"
-    echo "7) 安全配置"
-    echo "8) 时间与时区"
-    echo "9) 用户管理"
-    echo "0) 退出"
-    read -p "请选择一个选项 [0-9]: " opt
+  # 检查是否已有swapfile
+  if swapon --show=NAME | grep -q "$swapfile"; then
+    echo -e "${RED}Swap文件已经存在，请先删除再创建${NC}"
+    pause
+    return
   fi
 
-  case $opt in
-    1)
-      fix_hostname
-      fix_sources
-      ;;
-    2)
-      clean_garbage
-      ;;
-    3)
-      install_warp
-      ;;
-    4)
-      install_docker
-      ;;
-    5)
-      run_benchmark
-      ;;
-    6)
-      swap_manager
-      ;;
-    7)
-      security_settings
-      ;;
-    8)
-      time_timezone
-      ;;
-    9)
-      user_manager
-      ;;
-    0)
-      exit_script
-      ;;
-    *)
-      msg invalid
-      ;;
-  esac
+  # 创建并设置权限
+  fallocate -l "${size_bytes}" "$swapfile" || dd if=/dev/zero of="$swapfile" bs=1M count=$((size_gb*1024))
+  chmod 600 "$swapfile"
+  mkswap "$swapfile"
+  swapon "$swapfile"
+  echo "$swapfile none swap sw 0 0" >> /etc/fstab
+  echo -e "${GREEN}Swap创建并启用成功${NC}"
+  pause
+}
 
-  msg return_menu
+swapfile_remove() {
+  swapfile=/swapfile
+  if swapon --show=NAME | grep -q "$swapfile"; then
+    swapoff "$swapfile"
+    sed -i "\|$swapfile|d" /etc/fstab
+    rm -f "$swapfile"
+    echo -e "${GREEN}Swap关闭并删除成功${NC}"
+  else
+    echo "未检测到swap文件"
+  fi
+  pause
+}
+
+# --- 安全配置 ---
+security_menu() {
+  while true; do
+    clear_screen
+    print_line
+    echo -e "${CYAN}        安全配置        ${NC}"
+    print_line
+
+    # 防火墙状态
+    ufw_status=$(ufw status 2>/dev/null | head -1)
+    ssh_port=$(ss -tnlp | grep sshd | awk '{print $4}' | sed 's/.*://g' | head -1)
+    if [ -z "$ssh_port" ]; then ssh_port="22 (默认)"; fi
+
+    echo -e "${GREEN}防火墙(UFW)状态:${NC} $ufw_status"
+    echo -e "${GREEN}SSH端口:${NC} $ssh_port"
+    print_line
+    echo "1) 修改SSH端口"
+    echo "2) 安装UFW防火墙"
+    echo "3) 启用/禁用端口"
+    echo "4) 查看允许/拒绝端口规则"
+    echo "0) 返回上级菜单"
+    print_line
+    read -rp "请选择操作: " sec_choice
+
+    case $sec_choice in
+      1) modify_ssh_port ;;
+      2) install_ufw ;;
+      3) ufw_manage_ports ;;
+      4) ufw_show_rules ;;
+      0) return ;;
+      *) echo -e "${RED}无效选择${NC}"; pause ;;
+    esac
+  done
+}
+
+modify_ssh_port() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  read -rp "请输入新的SSH端口(1024-65535): " new_port
+  if ! [[ "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1024 ] || [ "$new_port" -gt 65535 ]; then
+    echo -e "${RED}端口号无效${NC}"
+    pause
+    return
+  fi
+
+  ssh_config="/etc/ssh/sshd_config"
+  if grep -q "^#Port" "$ssh_config"; then
+    sed -i "s/^#Port.*/Port $new_port/" "$ssh_config"
+  elif grep -q "^Port" "$ssh_config"; then
+    sed -i "s/^Port.*/Port $new_port/" "$ssh_config"
+  else
+    echo "Port $new_port" >> "$ssh_config"
+  fi
+
+  systemctl restart sshd && echo -e "${GREEN}SSH端口修改成功，新端口: $new_port${NC}" || echo -e "${RED}重启SSH失败，可能未生效${NC}"
+  pause
+}
+
+install_ufw() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  if command -v ufw >/dev/null 2>&1; then
+    echo -e "${GREEN}UFW已经安装${NC}"
+  else
+    echo "正在安装UFW..."
+    apt update && apt install -y ufw && echo -e "${GREEN}安装成功${NC}" || echo -e "${RED}安装失败${NC}"
+  fi
+  pause
+}
+
+ufw_manage_ports() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  while true; do
+    clear_screen
+    echo "UFW端口管理"
+    echo "1) 允许端口"
+    echo "2) 禁用端口"
+    echo "0) 返回"
+    read -rp "选择操作: " port_choice
+
+    case $port_choice in
+      1)
+        read -rp "请输入要允许的端口号: " port
+        if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+          echo "无效端口"
+          pause
+          continue
+        fi
+        ufw allow "$port" && echo "端口 $port 已允许" || echo "操作失败"
+        pause
+        ;;
+      2)
+        read -rp "请输入要禁用的端口号: " port
+        if ! [[ "$port" =~ ^[0-9]+$ ]]; then
+          echo "无效端口"
+          pause
+          continue
+        fi
+        ufw deny "$port" && echo "端口 $port 已禁用" || echo "操作失败"
+        pause
+        ;;
+      0) return ;;
+      *) echo "无效选择"; pause ;;
+    esac
+  done
+}
+
+ufw_show_rules() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  ufw status verbose
+  pause
+}
+
+# --- 用户管理 ---
+user_manage_menu() {
+  while true; do
+    clear_screen
+    print_line
+    echo -e "${CYAN}        用户管理        ${NC}"
+    print_line
+
+    echo -e "${GREEN}当前系统用户列表:${NC}"
+    # 列出非系统用户
+    awk -F: '$3>=1000 && $3<65534 {print $1}' /etc/passwd | column
+
+    print_line
+    echo "1) 添加新用户"
+    echo "2) 删除用户"
+    echo "3) 修改用户密码"
+    echo "0) 返回上级菜单"
+    print_line
+
+    read -rp "请选择操作: " user_choice
+
+    case $user_choice in
+      1) add_user ;;
+      2) del_user ;;
+      3) passwd_user ;;
+      0) return ;;
+      *) echo -e "${RED}无效选择${NC}"; pause ;;
+    esac
+  done
+}
+
+add_user() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  read -rp "请输入新用户名: " new_user
+  if id "$new_user" &>/dev/null; then
+    echo "用户已存在"
+    pause
+    return
+  fi
+
+  read -rp "是否赋予sudo权限? (y/n): " sudo_choice
+  sudo_choice=${sudo_choice,,}
+
+  useradd -m "$new_user" && echo "用户创建成功" || { echo "创建失败"; pause; return; }
+  passwd "$new_user"
+
+  if [[ "$sudo_choice" == "y" ]]; then
+    usermod -aG sudo "$new_user"
+    echo "已赋予sudo权限"
+  fi
+
+  pause
+}
+
+del_user() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  read -rp "请输入要删除的用户名: " del_user
+  if ! id "$del_user" &>/dev/null; then
+    echo "用户不存在"
+    pause
+    return
+  fi
+
+  read -rp "确定删除用户 $del_user ? (此操作不可恢复) (y/n): " confirm
+  confirm=${confirm,,}
+  if [[ "$confirm" == "y" ]]; then
+    userdel -r "$del_user" && echo "用户已删除" || echo "删除失败"
+  else
+    echo "取消操作"
+  fi
+  pause
+}
+
+passwd_user() {
+  if [ "$(id -u)" -ne 0 ]; then
+    echo -e "${RED}需要root权限${NC}"
+    pause
+    return
+  fi
+
+  read -rp "请输入要修改密码的用户名: " usr
+  if ! id "$usr" &>/dev/null; then
+    echo "用户不存在"
+    pause
+    return
+  fi
+
+  passwd "$usr"
+  pause
+}
+
+# --- 主循环 ---
+while true; do
+  show_system_info
+  read -rp "请输入数字选择功能: " main_choice
+  case $main_choice in
+    1) timezone_menu ;;
+    2) swap_menu ;;
+    3) security_menu ;;
+    4) user_manage_menu ;;
+    0) echo "退出脚本"; exit 0 ;;
+    *) echo -e "${RED}无效输入，请重新选择${NC}"; pause ;;
+  esac
 done
