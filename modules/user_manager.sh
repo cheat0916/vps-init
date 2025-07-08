@@ -8,102 +8,105 @@ BLUE="\033[36m"
 RESET="\033[0m"
 
 SUPPORT_UTF8=$(locale charmap 2>/dev/null | grep -iq "UTF-8" && echo 1 || echo 0)
-ICON_INFO=$([ $SUPPORT_UTF8 -eq 1 ] && echo "👤" || echo "[USR]")
-ICON_WARN=$([ $SUPPORT_UTF8 -eq 1 ] && echo "⚠️" || echo "[WARN]")
+ICON_USER=$([ $SUPPORT_UTF8 -eq 1 ] && echo "👤" || echo "[USER]")
 ICON_OK=$([ $SUPPORT_UTF8 -eq 1 ] && echo "✅" || echo "[OK]")
+ICON_WARN=$([ $SUPPORT_UTF8 -eq 1 ] && echo "⚠️" || echo "[WARN]")
 
-LOGFILE="/var/log/vps_user_manager.log"
-touch $LOGFILE 2>/dev/null || LOGFILE="/tmp/vps_user_manager.log"
+LOGFILE="/var/log/vps_user.log"
+touch "$LOGFILE" 2>/dev/null || LOGFILE="/tmp/vps_user.log"
 
 log() {
   echo "$(date '+%F %T') $1" >> "$LOGFILE"
 }
 
 list_users() {
-  echo -e "${BLUE}${ICON_INFO} 当前系统用户列表：${RESET}"
-  printf "%-15s %-8s %-10s\n" "用户名" "UID" "是否sudo"
-  # 过滤系统用户，显示UID >= 1000，除去nobody
-  awk -F: '($3 >= 1000) && ($1 != "nobody") {print $1, $3}' /etc/passwd | while read user uid; do
-    if groups $user | grep -qw "sudo"; then
-      sudo_status="是"
-    else
-      sudo_status="否"
-    fi
-    printf "%-15s %-8s %-10s\n" "$user" "$uid" "$sudo_status"
-  done
-  echo
+  echo -e "${BLUE}${ICON_USER} 当前非系统用户列表:${RESET}"
+  awk -F: '$3 >= 1000 && $1 != "nobody" {print "- " $1 " (" $3 ")"}' /etc/passwd
 }
 
 add_user() {
-  read -rp "请输入要添加的用户名: " newuser
-  if id "$newuser" &>/dev/null; then
-    echo -e "${RED}${ICON_WARN} 用户 $newuser 已存在！${RESET}"
+  read -rp "请输入要添加的用户名: " username
+  if id "$username" &>/dev/null; then
+    echo -e "${RED}用户 $username 已存在${RESET}"
     return
   fi
-  read -rp "请输入用户密码: " -s passwd1
+  useradd -m "$username"
+  read -s -rp "设置用户密码: " pwd1
   echo
-  read -rp "请再次输入密码确认: " -s passwd2
+  read -s -rp "再次确认密码: " pwd2
   echo
-  if [[ "$passwd1" != "$passwd2" ]]; then
-    echo -e "${RED}${ICON_WARN} 两次密码输入不一致！${RESET}"
-    return
-  fi
-  echo "请选择用户权限："
-  select perm in "普通用户" "sudo用户" "取消"; do
-    case $perm in
-      普通用户)
-        useradd -m "$newuser" && echo "$newuser:$passwd1" | chpasswd
-        echo -e "${GREEN}${ICON_OK} 用户 $newuser 添加成功（普通用户）${RESET}"
-        log "添加普通用户 $newuser"
-        break
-        ;;
-      sudo用户)
-        useradd -m -G sudo "$newuser" && echo "$newuser:$passwd1" | chpasswd
-        echo -e "${GREEN}${ICON_OK} 用户 $newuser 添加成功（sudo用户）${RESET}"
-        log "添加sudo用户 $newuser"
-        break
-        ;;
-      取消) break ;;
-      *) echo "无效选择，请重试。" ;;
-    esac
-  done
+  [[ "$pwd1" != "$pwd2" ]] && echo -e "${RED}密码不一致，取消添加${RESET}" && return
+  echo "$username:$pwd1" | chpasswd
+  read -rp "是否授予 sudo 权限？(y/n): " sudo_flag
+  [[ "$sudo_flag" == "y" ]] && usermod -aG sudo "$username"
+  echo -e "${GREEN}${ICON_OK} 用户 $username 添加成功${RESET}"
+  log "添加用户 $username，sudo: $sudo_flag"
 }
 
 del_user() {
-  read -rp "请输入要删除的用户名: " deluser
-  if ! id "$deluser" &>/dev/null; then
-    echo -e "${RED}${ICON_WARN} 用户 $deluser 不存在！${RESET}"
+  read -rp "请输入要删除的用户名: " username
+  if ! id "$username" &>/dev/null; then
+    echo -e "${RED}用户 $username 不存在${RESET}"
     return
   fi
-  read -rp "确认删除用户 $deluser 及其主目录？(y/n): " confirm
-  if [[ "$confirm" =~ ^[Yy]$ ]]; then
-    userdel -r "$deluser"
-    echo -e "${GREEN}${ICON_OK} 用户 $deluser 已删除${RESET}"
-    log "删除用户 $deluser"
+  read -rp "是否删除用户主目录？(y/n): " del_home
+  if [[ "$del_home" == "y" ]]; then
+    userdel -r "$username"
+    log "删除用户 $username（含主目录）"
   else
-    echo "取消删除。"
+    userdel "$username"
+    log "删除用户 $username（保留主目录）"
+  fi
+  echo -e "${YELLOW}${ICON_WARN} 用户 $username 已删除${RESET}"
+}
+
+change_pass() {
+  read -rp "请输入要修改密码的用户名: " username
+  if ! id "$username" &>/dev/null; then
+    echo -e "${RED}用户不存在${RESET}"
+    return
+  fi
+  passwd "$username"
+  log "修改用户 $username 密码"
+}
+
+toggle_sudo() {
+  read -rp "请输入用户名: " username
+  if ! id "$username" &>/dev/null; then
+    echo -e "${RED}用户不存在${RESET}"
+    return
+  fi
+  if groups "$username" | grep -q '\bsudo\b'; then
+    deluser "$username" sudo
+    echo -e "${YELLOW}已移除 $username 的 sudo 权限${RESET}"
+    log "移除 sudo 权限：$username"
+  else
+    usermod -aG sudo "$username"
+    echo -e "${GREEN}已授予 $username sudo 权限${RESET}"
+    log "授予 sudo 权限：$username"
   fi
 }
 
 main_menu() {
   clear
   echo -e "${GREEN}=== 用户管理模块 ===${RESET}"
-  echo
-  list_users
-  echo "请选择操作："
-  echo "1) 添加用户"
-  echo "2) 删除用户"
-  echo "3) 查看用户列表"
+  echo "1) 查看所有用户"
+  echo "2) 添加新用户"
+  echo "3) 删除用户"
+  echo "4) 修改用户密码"
+  echo "5) 切换用户 sudo 权限"
   echo "0) 返回主菜单"
-  read -rp "请输入选项: " choice
+  read -rp "请输入选项 [0-5]: " choice
   case $choice in
-    1) add_user ;;
-    2) del_user ;;
-    3) list_users ;;
-    0) exit 0 ;;
-    *) echo -e "${RED}${ICON_WARN} 无效选择${RESET}" ;;
+    1) list_users ;;
+    2) add_user ;;
+    3) del_user ;;
+    4) change_pass ;;
+    5) toggle_sudo ;;
+    0) return ;;
+    *) echo -e "${RED}无效输入${RESET}" ;;
   esac
-  read -rp "按回车返回菜单..."
+  read -rp "按回车继续..."
   main_menu
 }
 
