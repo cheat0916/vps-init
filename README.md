@@ -1,4 +1,3 @@
-```markdown
 <p align="center">
   <img src="https://raw.githubusercontent.com/cheat0916/vps-init/master/banner.png" alt="Cheat VPS Init Banner" width="100%">
 </p>
