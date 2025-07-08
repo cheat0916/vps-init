@@ -38,54 +38,17 @@ function msg() {
     return_menu)
       [[ $LANGUAGE == "EN" ]] && read -p "Press Enter to return..." || read -p "按回车键返回..."
       ;;
+    invalid)
+      [[ $LANGUAGE == "EN" ]] && echo -e "${RED}Invalid input!${RESET}" || echo -e "${RED}无效输入！${RESET}"
+      ;;
   esac
 }
 
 # ========= 权限检测 =========
-[[ $EUID -ne 0 ]] && msg root_warn
-
-# ========= 主菜单 =========
-main_menu() {
-  clear
-  echo -e "$CHEAT_LOGO"
-  msg welcome
-  msg warning
-  echo
-  echo -e "${YELLOW}当前用户：$(whoami)   网络：$(ping -c1 -W1 1.1.1.1 >/dev/null 2>&1 && echo 在线 || echo 离线)${RESET}"
-  echo
-  echo -e "${BLUE}请选择操作：${RESET}"
-  echo "1. 修复主机名 /etc/hosts"
-  echo "2. 修复软件源并更新"
-  echo "3. 清理系统垃圾"
-  echo "4. 安装 WARP"
-  echo "5. 安装 Docker"
-  echo "6. VPS 性能测试"
-  echo "7. Swap 管理"
-  echo "8. 安全配置（SSH、防火墙、Fail2Ban）"
-  echo "9. 系统时间与时区配置"
-  echo "10. 用户管理"
-  echo "11. 切换语言（当前：${LANGUAGE})"
-  echo "12. 退出"
-  read -p "请输入选项 [1-12]: " opt
-
-  case $opt in
-    1) fix_hostname ;;
-    2) fix_sources ;;
-    3) clean_garbage ;;
-    4) install_warp ;;
-    5) install_docker ;;
-    6) run_benchmark ;;
-    7) bash modules/swap_manager.sh ;;
-    8) bash modules/security_config.sh ;;
-    9) bash modules/time_timezone.sh ;;
-    10) bash modules/user_manager.sh ;;
-    11) msg choose_lang ;;
-    12) exit_script ;;
-    *) echo -e "${RED}无效输入！${RESET}" && sleep 1 ;;
-  esac
-  msg return_menu
-  main_menu
-}
+if [[ $EUID -ne 0 ]]; then
+  msg root_warn
+  exit 1
+fi
 
 # ========= 基础功能 =========
 fix_hostname() {
@@ -112,7 +75,13 @@ fix_sources() {
 
 clean_garbage() {
   echo -e "${BLUE}清理缓存...${RESET}"
-  apt autoremove -y && apt clean && echo -e "${GREEN}完成${RESET}"
+  if command -v apt >/dev/null 2>&1; then
+    apt autoremove -y && apt clean && echo -e "${GREEN}完成${RESET}"
+  elif command -v yum >/dev/null 2>&1; then
+    yum autoremove -y && yum clean all && echo -e "${GREEN}完成${RESET}"
+  else
+    echo -e "${RED}未知包管理器，无法清理缓存${RESET}"
+  fi
 }
 
 install_warp() {
@@ -137,6 +106,271 @@ exit_script() {
   exit 0
 }
 
-# ========= 启动 =========
+# ========= Swap 管理模块 =========
+swap_manager() {
+  while true; do
+    clear
+    echo -e "${GREEN}=== Swap 管理 ===${RESET}"
+    echo "当前 Swap 状态："
+    swapon --show || echo "无 Swap"
+    echo
+    echo "1. 创建 Swap 文件 (1GB)"
+    echo "2. 删除 Swap 文件"
+    echo "3. 返回主菜单"
+    read -p "请选择 [1-3]: " sm_opt
+    case $sm_opt in
+      1)
+        if swapon --show | grep -q swapfile; then
+          echo -e "${YELLOW}Swap 文件已存在，先删除后再创建。${RESET}"
+          swapoff /swapfile
+          rm -f /swapfile
+        fi
+        fallocate -l 1G /swapfile
+        chmod 600 /swapfile
+        mkswap /swapfile
+        swapon /swapfile
+        echo '/swapfile none swap sw 0 0' >> /etc/fstab
+        echo -e "${GREEN}Swap 文件创建并启用完成。${RESET}"
+        ;;
+      2)
+        if swapon --show | grep -q swapfile; then
+          swapoff /swapfile
+          sed -i '/swapfile/d' /etc/fstab
+          rm -f /swapfile
+          echo -e "${GREEN}Swap 文件已删除。${RESET}"
+        else
+          echo -e "${YELLOW}没有检测到 Swap 文件。${RESET}"
+        fi
+        ;;
+      3)
+        break
+        ;;
+      *)
+        msg invalid
+        ;;
+    esac
+    msg return_menu
+  done
+}
+
+# ========= 安全配置模块 =========
+security_config() {
+  while true; do
+    clear
+    echo -e "${GREEN}=== 安全配置（SSH、防火墙、Fail2Ban） ===${RESET}"
+    echo "1. 修改 SSH 端口"
+    echo "2. 启用 UFW 防火墙"
+    echo "3. 安装并配置 Fail2Ban"
+    echo "4. 返回主菜单"
+    read -p "请选择 [1-4]: " sc_opt
+    case $sc_opt in
+      1)
+        read -p "请输入新的 SSH 端口（默认 22）: " new_port
+        new_port=${new_port:-22}
+        sed -i "s/#Port 22/Port $new_port/" /etc/ssh/sshd_config
+        systemctl restart sshd
+        echo -e "${GREEN}SSH 端口已修改为 $new_port 并重启 sshd。${RESET}"
+        ;;
+      2)
+        if command -v ufw >/dev/null 2>&1; then
+          ufw enable
+          ufw allow ssh
+          echo -e "${GREEN}UFW 防火墙已启用并允许 SSH。${RESET}"
+        else
+          echo -e "${YELLOW}未检测到 UFW，尝试安装中...${RESET}"
+          if [ -f /etc/debian_version ]; then
+            apt update && apt install ufw -y
+            ufw enable
+            ufw allow ssh
+            echo -e "${GREEN}UFW 防火墙已安装并启用。${RESET}"
+          else
+            echo -e "${RED}当前系统不支持自动安装 UFW。${RESET}"
+          fi
+        fi
+        ;;
+      3)
+        if command -v fail2ban-server >/dev/null 2>&1; then
+          systemctl enable --now fail2ban
+          echo -e "${GREEN}Fail2Ban 已启用。${RESET}"
+        else
+          echo -e "${YELLOW}Fail2Ban 未安装，正在安装...${RESET}"
+          if [ -f /etc/debian_version ]; then
+            apt update && apt install fail2ban -y
+            systemctl enable --now fail2ban
+            echo -e "${GREEN}Fail2Ban 已安装并启用。${RESET}"
+          else
+            echo -e "${RED}当前系统不支持自动安装 Fail2Ban。${RESET}"
+          fi
+        fi
+        ;;
+      4)
+        break
+        ;;
+      *)
+        msg invalid
+        ;;
+    esac
+    msg return_menu
+  done
+}
+
+# ========= 系统时间与时区配置模块 =========
+time_timezone() {
+  while true; do
+    clear
+    echo -e "${GREEN}=== 系统时间与时区配置 ===${RESET}"
+    echo "当前时间：$(date)"
+    echo "当前时区：$(timedatectl show --property=Timezone --value)"
+    echo
+    echo "1. 设置时区"
+    echo "2. 同步网络时间 (NTP)"
+    echo "3. 返回主菜单"
+    read -p "请选择 [1-3]: " tt_opt
+    case $tt_opt in
+      1)
+        timedatectl list-timezones
+        read -p "请输入时区名称（如 Asia/Shanghai）: " tz
+        if timedatectl set-timezone "$tz"; then
+          echo -e "${GREEN}时区已设置为 $tz${RESET}"
+        else
+          echo -e "${RED}设置时区失败，请检查输入是否正确。${RESET}"
+        fi
+        ;;
+      2)
+        if command -v timedatectl >/dev/null 2>&1; then
+          timedatectl set-ntp true
+          echo -e "${GREEN}NTP 同步已开启。${RESET}"
+        else
+          echo -e "${RED}timedatectl 命令不存在，无法同步时间。${RESET}"
+        fi
+        ;;
+      3)
+        break
+        ;;
+      *)
+        msg invalid
+        ;;
+    esac
+    msg return_menu
+  done
+}
+
+# ========= 用户管理模块 =========
+user_manager() {
+  while true; do
+    clear
+    echo -e "${GREEN}=== 用户管理 ===${RESET}"
+    echo "当前用户列表："
+    cut -d: -f1 /etc/passwd
+    echo
+    echo "1. 添加用户"
+    echo "2. 删除用户"
+    echo "3. 修改用户密码"
+    echo "4. 返回主菜单"
+    read -p "请选择 [1-4]: " um_opt
+    case $um_opt in
+      1)
+        read -p "请输入新用户名: " new_user
+        if id "$new_user" &>/dev/null; then
+          echo -e "${YELLOW}用户已存在。${RESET}"
+        else
+          adduser "$new_user"
+          echo -e "${GREEN}用户 $new_user 添加成功。${RESET}"
+        fi
+        ;;
+      2)
+        read -p "请输入要删除的用户名: " del_user
+        if id "$del_user" &>/dev/null; then
+          deluser "$del_user"
+          echo -e "${GREEN}用户 $del_user 删除成功。${RESET}"
+        else
+          echo -e "${YELLOW}用户不存在。${RESET}"
+        fi
+        ;;
+      3)
+        read -p "请输入用户名: " pass_user
+        if id "$pass_user" &>/dev/null; then
+          passwd "$pass_user"
+          echo -e "${GREEN}用户 $pass_user 密码已修改。${RESET}"
+        else
+          echo -e "${YELLOW}用户不存在。${RESET}"
+        fi
+        ;;
+      4)
+        break
+        ;;
+      *)
+        msg invalid
+        ;;
+    esac
+    msg return_menu
+  done
+}
+
+# ========= 主菜单 =========
+main_menu() {
+  clear
+  echo -e "$CHEAT_LOGO"
+  msg welcome
+  msg warning
+  echo
+  echo "当前系统信息："
+  uname -a
+  echo
+  echo "1. 修复主机名和软件源"
+  echo "2. 清理系统垃圾"
+  echo "3. 安装 WARP"
+  echo "4. 安装 Docker"
+  echo "5. 性能测试"
+  echo "6. Swap 管理"
+  echo "7. 安全配置"
+  echo "8. 时间与时区设置"
+  echo "9. 用户管理"
+  echo "0. 退出脚本"
+  echo
+  read -p "请选择功能 [0-9]: " opt
+  case $opt in
+    1)
+      fix_hostname
+      fix_sources
+      ;;
+    2)
+      clean_garbage
+      ;;
+    3)
+      install_warp
+      ;;
+    4)
+      install_docker
+      ;;
+    5)
+      run_benchmark
+      ;;
+    6)
+      swap_manager
+      ;;
+    7)
+      security_config
+      ;;
+    8)
+      time_timezone
+      ;;
+    9)
+      user_manager
+      ;;
+    0)
+      exit_script
+      ;;
+    *)
+      msg invalid
+      ;;
+  esac
+  msg return_menu
+}
+
+# ========= 程序入口 =========
 msg choose_lang
-main_menu
+
+while true; do
+  main_menu
+done
