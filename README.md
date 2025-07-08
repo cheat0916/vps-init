@@ -104,4 +104,3 @@ bash <(curl -fsSL https://raw.githubusercontent.com/cheat0916/vps-init/master/vp
 ## 🌟 Star 支持 / Support
 
 如果你觉得这个项目对你有帮助，欢迎点击右上角 `⭐ Star` 支持一下，谢谢！
-```
